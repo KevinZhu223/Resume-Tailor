@@ -729,6 +729,86 @@ class ResumeTailoringPipeline:
         self.resume_parser = ResumeParser()
         self.ai_rewriter = AIResumeRewriter(openai_api_key, max_api_calls=max_api_calls)
     
+    def detect_bullets(self, lines: List[str], section_type: str) -> Tuple[List[str], List[str]]:
+        """
+        Detect bullet points in resume sections, handling various formats and multi-line bullets.
+        
+        Args:
+            lines: List of text lines from a resume section
+            section_type: Type of section (experience, projects, etc.)
+        
+        Returns:
+            Tuple of (bullet_points, non_bullet_content)
+        """
+        # Define bullet pattern regex
+        BULLET_REGEX = re.compile(r"^\s*(?:[-*•●▪‣])\s+")
+        
+        # Action verbs that indicate bullet points in certain sections
+        ACTION_VERBS = {
+            'developed', 'built', 'promoted', 'attended', 'engaged', 'led', 
+            'created', 'engineered', 'implemented', 'analyzed', 'collaborated', 
+            'researched', 'managed', 'designed', 'initiated', 'organized', 
+            'planned', 'prepared', 'produced', 'programmed', 'qualified', 
+            'recruited', 'reduced', 'represented', 'resolved', 'restructured', 
+            'revised', 'reviewed', 'scheduled', 'selected', 'served', 'set', 
+            'shaped', 'spread', 'streamlined', 'strengthened', 'summarized', 
+            'supervised', 'supported', 'trained', 'transformed', 'utilized', 
+            'volunteered', 'won', 'wrote', 'awarded', 'cleaned', 'visualized', 
+            'practiced'
+        }
+        
+        bullet_points = []
+        non_bullet_content = []
+        current_bullet = None
+        
+        # Only apply advanced detection to relevant sections
+        relevant_sections = {'experience', 'projects', 'research', 'involvement'}
+        use_action_verbs = section_type in relevant_sections
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Skip empty lines
+            if not line_stripped:
+                continue
+                
+            # Check if this line starts a new bullet
+            is_bullet = False
+            
+            # Check for bullet symbols
+            if BULLET_REGEX.match(line_stripped):
+                is_bullet = True
+            # Check for action verbs in relevant sections
+            elif use_action_verbs:
+                first_word = line_stripped.split()[0].lower()
+                if first_word in ACTION_VERBS:
+                    is_bullet = True
+            
+            if is_bullet:
+                # Save previous bullet if exists
+                if current_bullet is not None:
+                    bullet_points.append(current_bullet)
+                
+                # Start new bullet (remove bullet symbol if present)
+                if BULLET_REGEX.match(line_stripped):
+                    current_bullet = BULLET_REGEX.sub('', line_stripped, count=1).strip()
+                else:
+                    current_bullet = line_stripped
+            else:
+                # This is not a bullet starter
+                if current_bullet is not None:
+                    # Continue the current bullet
+                    current_bullet += ' ' + line_stripped
+                else:
+                    # This is non-bullet content
+                    non_bullet_content.append(line_stripped)
+        
+        # Add the last bullet if exists
+        if current_bullet is not None:
+            bullet_points.append(current_bullet)
+        
+        return bullet_points, non_bullet_content
+    
     def tailor_resume(self, job_description: str, resume_file: str, 
                      output_file: str = None, dry_run: bool = False, debug: bool = False,
                      bullets_only: bool = False) -> Dict:
@@ -770,26 +850,7 @@ class ResumeTailoringPipeline:
         for section in resume_sections:
             if section.section_type in ['experience', 'projects', 'research']:
                 # Extract bullet points - more flexible detection
-                bullet_points = []
-                non_bullet_content = []
-                
-                for item in section.content:
-                    item_stripped = item.strip()
-                    # Check for various bullet point indicators
-                    if (item_stripped.startswith('•') or 
-                        item_stripped.startswith('-') or 
-                        item_stripped.startswith('*') or
-                        item_stripped.startswith('●') or
-                        # Check if line looks like a bullet point (starts with action verb and is substantial)
-                        (len(item_stripped) > 20 and 
-                         any(item_stripped.lower().startswith(verb) for verb in 
-                             ['developed', 'built', 'created', 'implemented', 'designed', 
-                              'analyzed', 'managed', 'led', 'collaborated', 'engineered',
-                              'promoted', 'leading', 'awarded', 'cleaned', 'visualized',
-                              'attend', 'practice', 'engaged']))):
-                        bullet_points.append(item)
-                    else:
-                        non_bullet_content.append(item)
+                bullet_points, non_bullet_content = self.detect_bullets(section.content, section.section_type)
                 
                 if debug:
                     logger.info(f"=== {section.section_type.upper()} SECTION DEBUG ===")

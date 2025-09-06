@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Set, Any
 import logging
 from pathlib import Path
 import json
@@ -45,6 +45,22 @@ class ResumeSection:
     title: str
     content: List[str]
     section_type: str
+
+@dataclass
+class TailoredOutput:
+    """Represents the complete output of the tailoring process"""
+    polished_resume: str
+    technical_skills: Dict[str, List[str]]
+    recommended_skills: List[str]
+    debug_info: Dict[str, Any]
+    notes: List[str]
+
+@dataclass
+class SkillAnalysis:
+    """Results of skill gap analysis"""
+    present_skills: Set[str]
+    missing_skills: Set[str]
+    partially_matched_skills: Dict[str, str]  # job_skill -> resume_skill that partially matches
     
 @dataclass
 class JobAnalysis:
@@ -1775,8 +1791,9 @@ class ResumeTailoringPipeline:
         return bullet_points, non_bullet_content
     
     def tailor_resume(self, job_description: str, resume_file: str, 
-                     output_file: str = None, dry_run: bool = False, debug: bool = False,
-                     bullets_only: bool = False, polish_mode: bool = False) -> Dict:
+                     output_file: str = None, mode: str = 'tailor', dry_run: bool = False, 
+                     debug: bool = False, bullets_only: bool = False, verify_truth: bool = False,
+                     output_format: str = 'standard') -> TailoredOutput:
         """Complete pipeline to tailor resume to job description"""
         
         logger.info("Starting resume tailoring process...")
@@ -1800,7 +1817,7 @@ class ResumeTailoringPipeline:
             logger.info("=== END SECTIONS DEBUG ===")
         
         # Step 2: Analyze job description (skip in polish mode)
-        if polish_mode:
+        if mode == 'polish':
             logger.info("Polish mode: Skipping job description analysis")
             job_analysis = None
         else:
@@ -1808,7 +1825,7 @@ class ResumeTailoringPipeline:
             job_analysis = self.job_analyzer.analyze_job_description(job_description)
         
         # Step 3: Calculate initial match score (skip in polish mode)
-        if polish_mode:
+        if mode == 'polish':
             initial_score = 0.0
         else:
             initial_score = self._calculate_match_score(resume_text, job_analysis)
@@ -1825,7 +1842,7 @@ class ResumeTailoringPipeline:
                 bullet_points, non_bullet_content = self.detect_bullets(section.content, section.section_type)
                 
                 # Special handling for Technical Skills section
-                if section.section_type == 'skills' and not polish_mode:
+                if section.section_type == 'skills' and mode != 'polish':
                     section = self._enhance_technical_skills_section(section, job_analysis)
                 
                 if debug:
@@ -1841,7 +1858,7 @@ class ResumeTailoringPipeline:
                     logger.info(f"Processing {len(bullet_points)} bullets from {section.section_type} section")
                     
                     # Rewrite all bullet points in this section at once
-                    if polish_mode:
+                    if mode == 'polish':
                         rewritten_bullets = self.ai_rewriter.polish_bullet_points_batch(
                             bullet_points, 
                             f"This is from the {section.section_type} section",
@@ -1942,7 +1959,7 @@ class ResumeTailoringPipeline:
         
         # Step 5: Generate suggestions
         # Step 5: Generate improvement suggestions (skip in polish mode)
-        if polish_mode:
+        if mode == 'polish':
             logger.info("Polish mode: Skipping improvement suggestions")
             suggestions = []
         else:
@@ -1953,7 +1970,7 @@ class ResumeTailoringPipeline:
         
         # Step 6: Create output
         tailored_resume_text = self._sections_to_text(tailored_sections)
-        if polish_mode:
+        if mode == 'polish':
             final_score = 0.0
         else:
             final_score = self._calculate_match_score(tailored_resume_text, job_analysis)
@@ -1962,7 +1979,7 @@ class ResumeTailoringPipeline:
         if output_file and not dry_run:
             if bullets_only and bullet_changes:
                 # Generate bullets-only output
-                bullets_output = self.doc_parser._generate_bullets_only_output(bullet_changes, job_analysis if not polish_mode else None)
+                bullets_output = self.doc_parser._generate_bullets_only_output(bullet_changes, job_analysis if mode != 'polish' else None)
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(bullets_output)
             else:
@@ -1970,19 +1987,136 @@ class ResumeTailoringPipeline:
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(tailored_resume_text)
         
-        return {
-            'original_resume': resume_text,
-            'tailored_resume': tailored_resume_text,
-            'job_analysis': job_analysis,
-            'initial_match_score': initial_score,
-            'final_match_score': final_score,
-            'improvement_suggestions': suggestions,
-            'total_bullets_processed': total_bullets_processed,
-            'api_calls_made': self.ai_rewriter.api_calls_made,
-            'dry_run': dry_run,
-            'bullet_changes': bullet_changes if bullets_only else [],
-            'bullets_only': bullets_only
-        }
+        # Perform skill gap analysis if needed
+        skill_analysis = None
+        if mode in ['gap', 'tailor'] or output_format == 'detailed':
+            skill_analysis = self.analyze_skill_gaps(resume_sections, job_analysis)
+        
+        # Generate notes based on mode and analysis
+        notes = []
+        if skill_analysis:
+            if skill_analysis.missing_skills:
+                notes.append("Missing Skills (Consider Adding):")
+                notes.extend([f"- {skill}" for skill in sorted(skill_analysis.missing_skills)])
+            
+            if skill_analysis.partially_matched_skills:
+                notes.append("\nPartially Matched Skills:")
+                for job_skill, resume_skill in skill_analysis.partially_matched_skills.items():
+                    notes.append(f"- {job_skill} (Found: {resume_skill})")
+        
+        # Add improvement suggestions to notes
+        if suggestions:
+            notes.append("\nSuggested Improvements:")
+            notes.extend([f"- {suggestion}" for suggestion in suggestions])
+        
+        # Prepare technical skills by category
+        tech_skills = {}
+        for section in tailored_sections:
+            if section.section_type == 'skills':
+                for line in section.content:
+                    if ':' in line:
+                        category, skills = line.split(':', 1)
+                        tech_skills[category.strip()] = [s.strip() for s in skills.split(',')]
+        
+        # Create detailed output
+        output = TailoredOutput(
+            polished_resume=tailored_resume_text,
+            technical_skills=tech_skills,
+            recommended_skills=list(skill_analysis.missing_skills) if skill_analysis else [],
+            debug_info={
+                'initial_match_score': initial_score,
+                'final_match_score': final_score,
+                'total_bullets_processed': total_bullets_processed,
+                'api_calls_made': self.ai_rewriter.api_calls_made,
+                'bullet_changes': bullet_changes if bullets_only else [],
+                'mode': mode,
+                'dry_run': dry_run
+            },
+            notes=notes
+        )
+        
+        # Save output if specified and not in dry run
+        if output_file and not dry_run:
+            if bullets_only and bullet_changes:
+                # Generate bullets-only output
+                bullets_output = self.doc_parser._generate_bullets_only_output(bullet_changes, job_analysis)
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(bullets_output)
+            else:
+                # Generate full output based on format
+                if output_format == 'detailed':
+                    detailed_output = self._generate_detailed_output(output)
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        f.write(detailed_output)
+                else:
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        f.write(output.polished_resume)
+        
+        return output
+    
+    def verify_bullet_truth(self, original: str, rewritten: str, job_skills: Set[str]) -> Tuple[bool, str]:
+        """Verify that rewritten bullet maintains truth and doesn't add unmentioned skills"""
+        original_skills = set(self._extract_skills_from_text(original))
+        rewritten_skills = set(self._extract_skills_from_text(rewritten))
+        
+        # Check for unauthorized skill additions
+        new_skills = rewritten_skills - original_skills
+        unauthorized_skills = new_skills & job_skills
+        
+        if unauthorized_skills:
+            return False, f"Added unauthorized skills: {unauthorized_skills}"
+        
+        # Check for lost technical details
+        lost_skills = original_skills - rewritten_skills
+        if lost_skills:
+            return False, f"Lost original skills: {lost_skills}"
+        
+        # Check for content preservation (metrics, achievements)
+        metrics_pattern = r'\d+(?:\.\d+)?%|\d+\s*(?:users|requests|transactions|improvements?|seconds?|minutes?|hours?|days?)'
+        original_metrics = set(re.findall(metrics_pattern, original))
+        rewritten_metrics = set(re.findall(metrics_pattern, rewritten))
+        
+        if original_metrics - rewritten_metrics:
+            return False, f"Lost metrics: {original_metrics - rewritten_metrics}"
+        
+        return True, "Verified"
+    
+    def analyze_skill_gaps(self, resume_sections: List[ResumeSection], job_analysis: JobAnalysis) -> SkillAnalysis:
+        """Identify skills required by job but not present in resume"""
+        # Extract all skills from resume
+        resume_skills = set()
+        for section in resume_sections:
+            section_text = ' '.join(section.content)
+            skills = self._extract_skills_from_text(section_text)
+            resume_skills.update(skills)
+        
+        # Get job skills
+        job_skills = set(job_analysis.technologies + job_analysis.required_skills)
+        
+        # Find exact matches and missing skills
+        present_skills = resume_skills & job_skills
+        missing_skills = job_skills - resume_skills
+        
+        # Find partial matches (e.g., "Python scripting" vs "Python")
+        partially_matched = {}
+        for job_skill in missing_skills.copy():
+            for resume_skill in resume_skills:
+                # Check if job skill is part of resume skill or vice versa
+                if (job_skill.lower() in resume_skill.lower() or 
+                    resume_skill.lower() in job_skill.lower()):
+                    partially_matched[job_skill] = resume_skill
+                    missing_skills.remove(job_skill)
+                    break
+        
+        return SkillAnalysis(
+            present_skills=present_skills,
+            missing_skills=missing_skills,
+            partially_matched_skills=partially_matched
+        )
+    
+    def _extract_skills_from_text(self, text: str) -> List[str]:
+        """Extract skills from text using JobDescriptionAnalyzer"""
+        return self.job_analyzer._extract_meaningful_skills(text)
     
     def _calculate_match_score(self, resume_text: str, job_analysis: JobAnalysis) -> float:
         """Calculate how well resume matches job requirements with enhanced scoring"""
@@ -2056,6 +2190,53 @@ class ResumeTailoringPipeline:
                     if word_matches >= len(words) * 0.6:  # 60% of words match
                         matches += 0.5  # Partial credit
         return matches
+    
+    def _generate_detailed_output(self, output: TailoredOutput) -> str:
+        """Generate detailed output with all sections"""
+        sections = []
+        
+        # Add polished resume
+        sections.extend([
+            "=== Polished Resume ===",
+            output.polished_resume,
+            "",
+            "=== Technical Skills ===",
+        ])
+        
+        # Add technical skills by category
+        for category, skills in output.technical_skills.items():
+            sections.append(f"{category}: {', '.join(skills)}")
+        sections.append("")
+        
+        # Add recommended skills if any
+        if output.recommended_skills:
+            sections.extend([
+                "=== Recommended Skills (From Job Description, Not in Resume) ===",
+                ", ".join(output.recommended_skills),
+                ""
+            ])
+        
+        # Add notes if any
+        if output.notes:
+            sections.extend([
+                "=== Notes ===",
+                *output.notes,
+                ""
+            ])
+        
+        # Add debug info if available
+        if output.debug_info:
+            sections.extend([
+                "=== Debug Information ===",
+                f"Initial Match Score: {output.debug_info['initial_match_score']:.1f}%",
+                f"Final Match Score: {output.debug_info['final_match_score']:.1f}%",
+                f"Bullets Processed: {output.debug_info['total_bullets_processed']}",
+                f"API Calls Made: {output.debug_info['api_calls_made']}",
+                f"Mode: {output.debug_info['mode']}",
+                ""
+            ])
+        
+        return "\n".join(sections).strip()
     
     def _calculate_key_tech_bonus(self, resume_lower: str, job_analysis: JobAnalysis) -> float:
         """Calculate bonus points for having key technical skills"""
@@ -2236,17 +2417,27 @@ class ResumeTailoringPipeline:
 @click.option('--output-file', '-o', help='Path to output tailored resume')
 @click.option('--api-key', envvar='OPENAI_API_KEY', help='OpenAI API key')
 @click.option('--max-calls', default=MAX_API_CALLS, help=f'Maximum API calls allowed (default: {MAX_API_CALLS})')
+@click.option('--mode', type=click.Choice(['polish', 'tailor', 'gap']), default='tailor',
+              help='Operation mode: polish (readability), tailor (job alignment), or gap (skill analysis)')
 @click.option('--dry-run', is_flag=True, help='Run without making API calls (preview mode)')
 @click.option('--clear-cache', is_flag=True, help='Clear the bullet point cache before running')
 @click.option('--debug', is_flag=True, help='Enable debug output to see bullet detection')
 @click.option('--bullets-only', is_flag=True, help='Output only the rewritten bullet points with context (not the full resume)')
-@click.option('--polish', is_flag=True, help='Polish mode: improve readability and professionalism without job tailoring')
-def main(job_file, resume_file, output_file, api_key, max_calls, dry_run, clear_cache, debug, bullets_only, polish):
+@click.option('--verify-truth', is_flag=True, help='Enable strict truth verification for rewritten bullets')
+@click.option('--output-format', type=click.Choice(['standard', 'detailed']), default='standard',
+              help='Output format: standard (resume only) or detailed (with skills analysis)')
+def main(job_file, resume_file, output_file, api_key, max_calls, mode, dry_run, clear_cache, 
+         debug, bullets_only, verify_truth, output_format):
     """Tailor resume to match job description using AI"""
     
     if not dry_run and not api_key:
         click.echo("Error: OpenAI API key is required. Set OPENAI_API_KEY environment variable or use --api-key")
         return
+    
+    # Handle mode-specific requirements
+    if mode == 'gap' and output_format == 'standard':
+        click.echo("Warning: Gap analysis mode works best with detailed output format. Switching to detailed.")
+        output_format = 'detailed'
     
     if clear_cache:
         cache = BulletPointCache()
@@ -2275,43 +2466,61 @@ def main(job_file, resume_file, output_file, api_key, max_calls, dry_run, clear_
             pipeline = ResumeTailoringPipeline(api_key, max_api_calls=max_calls)
         
         # Process resume
-        results = pipeline.tailor_resume(job_description, resume_file, output_file, dry_run, debug, bullets_only, polish)
+        results = pipeline.tailor_resume(job_description, resume_file, output_file, mode, dry_run, 
+                                      debug, bullets_only, verify_truth, output_format)
         
         # Display results
         if dry_run:
             click.echo(f"\n🔍 DRY RUN COMPLETED")
             click.echo(f"📄 Would process: {resume_file}")
-            click.echo(f"📊 Current match score: {results['initial_match_score']:.1f}%")
-            click.echo(f"🔧 Bullets that would be rewritten: {results['total_bullets_processed']}")
-            click.echo(f"📞 API calls that would be made: ~{results['api_calls_made'] if results['api_calls_made'] > 0 else 'up to 2'}")
+            click.echo(f"📊 Current match score: {results.debug_info['initial_match_score']:.1f}%")
+            click.echo(f"🔧 Bullets that would be rewritten: {results.debug_info['total_bullets_processed']}")
+            click.echo(f"📞 API calls that would be made: ~{results.debug_info['api_calls_made'] if results.debug_info['api_calls_made'] > 0 else 'up to 2'}")
             if bullets_only:
                 click.echo(f"📋 Would generate bullets-only output to: {output_file}")
             else:
-                click.echo(f"💾 Would generate full resume output to: {output_file}")
+                click.echo(f"💾 Would generate {output_format} output to: {output_file}")
         else:
             click.echo(f"\n✅ Resume tailoring completed!")
             if bullets_only:
                 click.echo(f"📋 Rewritten bullet points saved to: {output_file}")
-                click.echo(f"📊 {len(results['bullet_changes'])} bullet points were rewritten")
+                click.echo(f"📊 {len(results.debug_info['bullet_changes'])} bullet points were rewritten")
             else:
-                click.echo(f"📄 Tailored resume saved to: {output_file}")
-            if polish:
+                click.echo(f"📄 Output saved to: {output_file}")
+            
+            if mode == 'polish':
                 click.echo(f"📊 Polish mode: Bullets improved for readability and professionalism")
+            elif mode == 'gap':
+                click.echo(f"📊 Gap analysis completed. Check output for skill recommendations.")
             else:
-                click.echo(f"📊 Match score improved: {results['initial_match_score']:.1f}% → {results['final_match_score']:.1f}%")
-            click.echo(f"🔧 Bullets processed: {results['total_bullets_processed']}")
-            click.echo(f"📞 API calls made: {results['api_calls_made']}/{max_calls}")
+                click.echo(f"📊 Match score improved: {results.debug_info['initial_match_score']:.1f}% → {results.debug_info['final_match_score']:.1f}%")
+            
+            click.echo(f"🔧 Bullets processed: {results.debug_info['total_bullets_processed']}")
+            click.echo(f"📞 API calls made: {results.debug_info['api_calls_made']}/{max_calls}")
+            
+            if results.recommended_skills:
+                click.echo("\n💡 Key missing skills from job description:")
+                for skill in sorted(results.recommended_skills[:5]):  # Show top 5
+                    click.echo(f"   - {skill}")
+                if len(results.recommended_skills) > 5:
+                    click.echo(f"   (and {len(results.recommended_skills) - 5} more...)")
         
-        if results['improvement_suggestions']:
+        if results.notes:
             click.echo(f"\n💡 Suggestions for further improvement:")
-            for i, suggestion in enumerate(results['improvement_suggestions'], 1):
-                click.echo(f"   {i}. {suggestion}")
+            for note in results.notes:
+                if not note.startswith(('Missing Skills', 'Partially Matched')):
+                    click.echo(f"   {note}")
         
         # Show cache info
         if not dry_run:
             cache = BulletPointCache()
             cache_size = len(cache.cache)
             click.echo(f"💾 Cache contains {cache_size} rewritten bullet points")
+            
+        # Show mode-specific summary
+        if mode == 'gap':
+            click.echo("\nℹ️ Gap Analysis Summary:")
+            click.echo("Run with --output-format detailed to see full analysis")
         
     except Exception as e:
         click.echo(f"❌ Error: {e}")
@@ -2343,6 +2552,53 @@ def cache_info():
         click.echo("\nSample cache entries:")
         for key in sample_keys:
             click.echo(f"  {key[:16]}... -> {cache.cache[key][:50]}...")
+
+    def _generate_detailed_output(self, output: TailoredOutput) -> str:
+        """Generate detailed output with all sections"""
+        sections = []
+        
+        # Add polished resume
+        sections.extend([
+            "=== Polished Resume ===",
+            output.polished_resume,
+            "",
+            "=== Technical Skills ===",
+        ])
+        
+        # Add technical skills by category
+        for category, skills in output.technical_skills.items():
+            sections.append(f"{category}: {', '.join(skills)}")
+        sections.append("")
+        
+        # Add recommended skills if any
+        if output.recommended_skills:
+            sections.extend([
+                "=== Recommended Skills (From Job Description, Not in Resume) ===",
+                ", ".join(output.recommended_skills),
+                ""
+            ])
+        
+        # Add notes if any
+        if output.notes:
+            sections.extend([
+                "=== Notes ===",
+                *output.notes,
+                ""
+            ])
+        
+        # Add debug info if available
+        if output.debug_info:
+            sections.extend([
+                "=== Debug Information ===",
+                f"Initial Match Score: {output.debug_info['initial_match_score']:.1f}%",
+                f"Final Match Score: {output.debug_info['final_match_score']:.1f}%",
+                f"Bullets Processed: {output.debug_info['total_bullets_processed']}",
+                f"API Calls Made: {output.debug_info['api_calls_made']}",
+                f"Mode: {output.debug_info['mode']}",
+                ""
+            ])
+        
+        return "\n".join(sections).strip()
 
 # Add the main command to the CLI group
 cli.add_command(main, name='tailor')

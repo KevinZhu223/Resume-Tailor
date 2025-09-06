@@ -1,0 +1,29 @@
+# Free Resume Tailor Requirements
+# No expensive APIs needed!
+
+# Core dependencies (same as original)
+click>=8.0.0
+python-docx>=0.8.11
+PyPDF2>=2.12.1
+pdfplumber>=0.7.6
+
+# NLP and analysis
+spacy>=3.4.0
+scikit-learn>=1.1.0
+nltk>=3.8
+
+# HTTP requests for free APIs
+requests>=2.28.0
+
+# Web interface (optional)
+streamlit>=1.28.0
+plotly>=5.15.0
+pandas>=1.5.0
+
+# Optional: Local AI models (uncomment if you want to try them)
+transformers>=4.21.0
+torch>=1.12.0
+ollama>=0.1.0
+
+# For PDF parsing improvements (optional)
+pymupdf>=1.20.0

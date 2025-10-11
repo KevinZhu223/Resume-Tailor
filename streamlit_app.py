@@ -155,32 +155,52 @@ def main():
             )
             
             if uploaded_job_file:
-                # Save the uploaded file to a temporary file
-                temp_dir = tempfile.mkdtemp()
-                temp_file_path = os.path.join(temp_dir, uploaded_job_file.name)
-                
-                with open(temp_file_path, 'wb') as f:
-                    f.write(uploaded_job_file.getvalue())
-                
-                try:
-                    parser = DocumentParser()
-                    job_description = parser.parse_document(temp_file_path)
-                    st.success("✅ Job description loaded successfully!")
+                # Show upload progress
+                with st.spinner("📄 Processing job description upload..."):
+                    # Save the uploaded file to a temporary file
+                    temp_dir = tempfile.mkdtemp()
+                    temp_file_path = os.path.join(temp_dir, uploaded_job_file.name)
                     
-                    # Show preview
-                    with st.expander("📖 Job Description Preview"):
-                        st.text_area("Job Description Content", job_description[:500] + "...", height=150, disabled=True)
-                
-                except Exception as e:
-                    st.error(f"❌ Error parsing job file: {e}")
-                    st.info("💡 Make sure your file is in PDF, Word, or text format")
-                finally:
-                    # Clean up temporary files
                     try:
-                        os.remove(temp_file_path)
-                        os.rmdir(temp_dir)
-                    except:
-                        pass
+                        with open(temp_file_path, 'wb') as f:
+                            f.write(uploaded_job_file.getvalue())
+                        
+                        # Show parsing progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        status_text.text("📖 Parsing job description...")
+                        progress_bar.progress(25)
+                        
+                        parser = DocumentParser()
+                        job_description = parser.parse_document(temp_file_path)
+                        
+                        progress_bar.progress(100)
+                        status_text.text("✅ Job description loaded successfully!")
+                        
+                        # Show file info
+                        st.info(f"📁 **File:** {uploaded_job_file.name} | **Size:** {len(uploaded_job_file.getvalue())} bytes | **Type:** {uploaded_job_file.type}")
+                        
+                        # Show preview
+                        with st.expander("📖 Job Description Preview", expanded=False):
+                            st.text_area("Job Description Content", job_description[:500] + "...", height=150, disabled=True, label_visibility="collapsed")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error parsing job file: {str(e)}")
+                        st.info("💡 **Troubleshooting:** Make sure your file is in PDF, Word, or text format and not corrupted")
+                        
+                        # Show detailed error for debugging
+                        with st.expander("🔍 Error Details"):
+                            st.code(str(e))
+                    finally:
+                        # Clean up temporary files
+                        try:
+                            if os.path.exists(temp_file_path):
+                                os.remove(temp_file_path)
+                            if os.path.exists(temp_dir):
+                                os.rmdir(temp_dir)
+                        except Exception as cleanup_error:
+                            st.warning(f"⚠️ Temporary file cleanup warning: {cleanup_error}")
         
         elif job_input_method == "Enter URL":
             job_url = st.text_input(
@@ -201,32 +221,52 @@ def main():
         
         resume_text = ""
         if uploaded_resume:
+            # Show upload progress
+            with st.spinner("📄 Processing resume upload..."):
                 # Save the uploaded file to a temporary file
                 temp_dir = tempfile.mkdtemp()
                 temp_file_path = os.path.join(temp_dir, uploaded_resume.name)
                 
-                with open(temp_file_path, 'wb') as f:
-                    f.write(uploaded_resume.getvalue())
-                
                 try:
+                    with open(temp_file_path, 'wb') as f:
+                        f.write(uploaded_resume.getvalue())
+                    
+                    # Show parsing progress
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("📖 Parsing document...")
+                    progress_bar.progress(25)
+                    
                     parser = DocumentParser()
                     resume_text = parser.parse_document(temp_file_path)
-                    st.success("✅ Resume loaded successfully!")
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Resume loaded successfully!")
+                    
+                    # Show file info
+                    st.info(f"📁 **File:** {uploaded_resume.name} | **Size:** {len(uploaded_resume.getvalue())} bytes | **Type:** {uploaded_resume.type}")
                     
                     # Show preview
-                    with st.expander("📖 Resume Preview"):
-                        st.text_area("Resume Content Preview", resume_text[:1000] + "...", height=200, disabled=True)
+                    with st.expander("📖 Resume Preview", expanded=False):
+                        st.text_area("Resume Content Preview", resume_text[:1000] + "...", height=200, disabled=True, label_visibility="collapsed")
                 
                 except Exception as e:
-                    st.error(f"❌ Error parsing resume: {e}")
-                    st.info("💡 Make sure your resume is in PDF, Word, or text format")
+                    st.error(f"❌ Error parsing resume: {str(e)}")
+                    st.info("💡 **Troubleshooting:** Make sure your resume is in PDF, Word, or text format and not corrupted")
+                    
+                    # Show detailed error for debugging
+                    with st.expander("🔍 Error Details"):
+                        st.code(str(e))
                 finally:
                     # Clean up temporary files
                     try:
-                        os.remove(temp_file_path)
-                        os.rmdir(temp_dir)
-                    except:
-                        pass
+                        if os.path.exists(temp_file_path):
+                            os.remove(temp_file_path)
+                        if os.path.exists(temp_dir):
+                            os.rmdir(temp_dir)
+                    except Exception as cleanup_error:
+                        st.warning(f"⚠️ Temporary file cleanup warning: {cleanup_error}")
     
     # Process button
     if st.button("🚀 Tailor My Resume", type="primary", use_container_width=True):

@@ -1,0 +1,87 @@
+{
+  "test_summary": {
+    "skill_normalization": 6,
+    "semantic_extraction": 7,
+    "skill_coverage": {
+      "matched_skills": 8,
+      "required_skills": 8,
+      "preferred_skills": 0,
+      "coverage_percent": 100.0
+    },
+    "ats_optimization": 69.33333333333333,
+    "integrated_pipeline": true
+  },
+  "skill_normalization_results": [
+    "Relational Db",
+    "Development",
+    "React.Js",
+    "Python",
+    "CI/CD",
+    "Ci/Cd"
+  ],
+  "semantic_extraction_results": [
+    "Application Resiliency",
+    "Data Warehousing",
+    "Cross Functional",
+    "Problem-Solving",
+    "Collaboration",
+    "Algorithms",
+    "Big Data"
+  ],
+  "skill_coverage_results": {
+    "required_skills": [
+      "Cloud Computing",
+      "Development",
+      "javascript",
+      "React.Js",
+      "Python",
+      "agile",
+      "Sql",
+      "Aws"
+    ],
+    "preferred_skills": [],
+    "total_skills": 8,
+    "required_count": 8,
+    "preferred_count": 0,
+    "required_percentage": 100.0,
+    "preferred_percentage": 0.0,
+    "coverage_summary": {
+      "matched_skills": 8,
+      "required_skills": 8,
+      "preferred_skills": 0,
+      "coverage_percent": 100.0
+    },
+    "coverage_display": "Coverage: 8/8 required (~100.0%)"
+  },
+  "ats_optimization_results": {
+    "overall_score": 69.33333333333333,
+    "keyword_coverage": 33.33333333333333,
+    "formatting_score": 80.0,
+    "header_compliance": 100.0,
+    "missing_keywords": [
+      "nodejs",
+      "cloud computing",
+      "azure",
+      "machine learning",
+      "data science",
+      "agile",
+      "Team Collaboration",
+      "Leadership"
+    ],
+    "issues": [
+      "Contains special character: \u2022",
+      "Excessive line breaks detected"
+    ],
+    "recommendations": [
+      "Add more job-relevant keywords to improve ATS matching",
+      "Consider adding missing keywords: nodejs, cloud computing, azure",
+      "Increase keyword density for: python, javascript, nodejs"
+    ]
+  },
+  "pipeline_results": {
+    "quantification_score": 6.0,
+    "jd_alignment_score": 2.0,
+    "ats_score": 63.0,
+    "overall_score": 23.666666666666668
+  }
+}
